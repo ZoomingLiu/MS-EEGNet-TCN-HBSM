@@ -1,0 +1,2 @@
+# Patient-Specific-EEG-State-Transition-Biomarkers-for-Pediatric-Seizure-Early-Warning-Based-on-HBSM
+This is a summer research project to automatically discover patient-specific EEG state transitions from the interictal to preictal phase in pediatric drug-resistant epilepsy patients without presetting a uniform preictal time window, and convert reproducible, interpretable candidate digital biomarkers into real-time risk warning signals.
