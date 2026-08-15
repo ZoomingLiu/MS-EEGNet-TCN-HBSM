@@ -1,0 +1,185 @@
+# data_v2.yaml -- CHB-MIT Data Freeze V2 Configuration
+# Addresses all V1 deficiencies: full EDF coverage, MNE reading,
+# patient-level timeline, subject-level splits, real quality checks,
+# per-EDF signal storage, proper overlap computation.
+
+schema_version: "2.2"
+data_version: "CHBMIT_DataFreeze_V2.2"
+seed: 42
+
+# Configurable signal root (members can override via env or config edit)
+signal_root: "E:/epilepsy_v2_signals"
+
+dataset:
+  name: "CHB-MIT"
+  root: "E:/chbmit_dataset"
+  edf_pattern: "*.edf"
+  summary_pattern: "*-summary.txt"
+
+# Subject identity mapping (chb01 and chb21 are the same patient)
+subject_mapping:
+  chb01: "subject_01"
+  chb21: "subject_01"
+  chb02: "subject_02"
+  chb03: "subject_03"
+  chb04: "subject_04"
+  chb05: "subject_05"
+  chb06: "subject_06"
+  chb07: "subject_07"
+  chb08: "subject_08"
+  chb09: "subject_09"
+  chb10: "subject_10"
+  chb11: "subject_11"
+  chb12: "subject_12"
+  chb13: "subject_13"
+  chb14: "subject_14"
+  chb15: "subject_15"
+  chb16: "subject_16"
+  chb17: "subject_17"
+  chb18: "subject_18"
+  chb19: "subject_19"
+  chb20: "subject_20"
+  chb22: "subject_22"
+  chb23: "subject_23"
+  chb24: "subject_24"
+
+sampling:
+  read_from_edf_header: true
+  expected_fs_hz: 256.0
+  resampling_enabled: false
+  unexpected_fs_policy: "exclude_and_record"
+
+channels:
+  target_22:
+    - "FP1-F7"
+    - "F7-T7"
+    - "T7-P7"
+    - "P7-O1"
+    - "FP1-F3"
+    - "F3-C3"
+    - "C3-P3"
+    - "P3-O1"
+    - "FP2-F4"
+    - "F4-C4"
+    - "C4-P4"
+    - "P4-O2"
+    - "FP2-F8"
+    - "F8-T8"
+    - "T8-P8"
+    - "P8-O2"
+    - "FZ-CZ"
+    - "CZ-PZ"
+    - "P7-T7"
+    - "T7-FT9"
+    - "FT9-FT10"
+    - "FT10-T8"
+  aliases:
+    "FP1-F7": ["FP1-F7", "fp1-f7"]
+    "FZ-CZ": ["FZ-CZ", "Fz-Cz", "FZ-Cz"]
+    "CZ-PZ": ["CZ-PZ", "Cz-Pz", "CZ-Pz"]
+  missing_policy: "exclude_record"
+  dummy_channels: [".", "-", "", "n/a", "N/A"]
+  normalize_names: true
+
+filtering:
+  bandpass_low_hz: 0.5
+  bandpass_high_hz: 45.0
+  order: 4
+  method: "butter_sos_causal"
+  warmup_sec: 2.0
+  warmup_policy: "flag_not_supervise"
+
+windowing:
+  length_sec: 5.0
+  overlap: 0.5
+  step_sec: 2.5
+  anchor: "end"
+  drop_incomplete: true
+
+labels:
+  unknown: -1
+  interictal: 0
+  transition: 1
+  preictal: 2
+  ictal: 3
+
+preictal:
+  duration_min: 30
+  loss_weight: 1.0
+
+transition:
+  start_min_before_onset: 40
+  end_min_before_onset: 30
+  loss_weight: 0.2
+
+interictal:
+  min_minutes_before_next_seizure: 90
+  min_minutes_after_prev_seizure_end: 60
+  loss_weight: 1.0
+
+postictal:
+  censoring_min: 60
+
+seizure_cluster:
+  gap_threshold_min: 120
+  policy: "merge"
+
+quality:
+  flags:
+    nan_inf: 1
+    sample_count_error: 2
+    filter_warmup: 4
+    clipping_saturation: 8
+    flat_channel: 16
+    high_amplitude_artifact: 32
+    missing_channel: 64
+    time_discontinuity: 128
+    annotation_problem: 256
+  thresholds:
+    flat_channel_diff: 1.0e-6
+    flat_channel_fraction: 0.5
+    saturation_zscore: 10.0
+    saturation_fraction: 0.5
+    high_amplitude_zscore: 10.0
+    clipping_uv: 500.0
+  min_supervised_overlap: 0.8
+  severe_excludes: ["nan_inf", "sample_count_error", "flat_channel", "missing_channel"]
+
+timeline:
+  continuous_block_gap_sec: 30  # gaps > 30s = new block
+  long_gap_boundary_sec: 300    # gaps > 5min = boundary, mark UNKNOWN around
+
+splits:
+  mode: "group_holdout"
+  group_holdout:
+    train_cases: ["chb01","chb02","chb03","chb04","chb05","chb06","chb07","chb08","chb09","chb10","chb11","chb12","chb13","chb14","chb15","chb16","chb21","chb24"]
+    val_cases: ["chb17","chb18","chb19","chb20"]
+    test_cases: ["chb22","chb23"]
+  loso:
+    enabled: true
+    unit: "subject_uid"
+
+sampling_balance:
+  interictal_to_preictal_ratio: 2.0
+  per_epoch_resample: true
+  seed: 42
+  stratify_by: ["subject_uid", "case_id"]
+
+normalization:
+  method: "channel_zscore"
+  fit_split: "train"
+  epsilon: 1.0e-8
+  prohibit_test_fitting: true
+
+sequence:
+  length: 24
+  stride: 1
+  min_valid_fraction: 0.8
+  cross_record: false
+  cross_block: false
+
+serialization:
+  signal_dtype: "float32"
+  lazy_loading: true
+  mmap_mode: "r"
+  signal_output_dir: "E:/epilepsy_v2_signals"
