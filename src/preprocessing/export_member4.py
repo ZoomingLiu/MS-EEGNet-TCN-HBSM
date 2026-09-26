@@ -27,28 +27,17 @@ import json
 import pickle
 from pathlib import Path
 
+from eeg_pipeline.paths import project_root
+from .configuration import load_config
+
 import numpy as np
 import pandas as pd
 import yaml
 
-try:
-    from _utils import (
-        parse_summary_enhanced,
-        build_patient_timeline,
-        get_all_seizures_absolute,
-        cluster_seizures,
-        LABEL_NAMES,
-    )
-except ImportError:  # run from project root
-    import sys
-    sys.path.insert(0, str(Path(__file__).parent))
-    from _utils import (
-        parse_summary_enhanced,
-        build_patient_timeline,
-        get_all_seizures_absolute,
-        cluster_seizures,
-        LABEL_NAMES,
-    )
+from ._utils import (
+    parse_summary_enhanced, build_patient_timeline,
+    get_all_seizures_absolute, cluster_seizures, LABEL_NAMES,
+)
 
 SPLIT_CODE = {"train": 0, "validation": 1, "test": 2}  # TRAIN/VAL/TEST per spec
 
@@ -226,14 +215,14 @@ def monitoring_duration_subject(case_info, config, censor_min=None):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--config", default=str(Path(__file__).parent / "config.yaml"))
-    ap.add_argument("--data-dir", default="../artifacts/data_freeze_v2_2")
-    ap.add_argument("--out-dir", default="../artifacts/export_member4")
+    ap.add_argument("--config", default=str(project_root() / "configs" / "preprocessing_legacy.yaml"))
+    ap.add_argument("--data-dir", default=str(project_root() / "data" / "processed" / "legacy_v2_2"))
+    ap.add_argument("--out-dir", default=str(project_root() / "outputs" / "member4"))
     ap.add_argument("--postictal-censor-min", type=float, default=None,
                     help="override post-ictal censoring window (default: config)")
     args = ap.parse_args()
 
-    config = yaml.safe_load(open(args.config, encoding="utf-8"))
+    config = load_config(args.config)
     data_dir = Path(args.data_dir)
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

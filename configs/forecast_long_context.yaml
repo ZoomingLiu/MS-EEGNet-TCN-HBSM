@@ -1,0 +1,51 @@
+# EXPERIMENTAL: past 15 minutes -> event onset in (t, t+60 minutes].
+# Not a clinically calibrated probability model; do not reuse legacy state labels.
+sample_rate: 256
+channel_names:
+  - FP1-F7
+  - F7-T7
+  - T7-P7
+  - P7-O1
+  - FP1-F3
+  - F3-C3
+  - C3-P3
+  - P3-O1
+  - FP2-F4
+  - F4-C4
+  - C4-P4
+  - P4-O2
+  - FP2-F8
+  - F8-T8
+  - T8-P8
+  - P8-O2
+  - FZ-CZ
+  - CZ-PZ
+  - P7-T7
+  - T7-FT9
+  - FT9-FT10
+  - FT10-T8
+history_minutes: 15
+horizon_minutes: 60
+endpoint_stride_seconds: 60
+window_seconds: 5
+postictal_seconds: 3600
+filter_warmup_seconds: 2.0
+hidden_dim: 64
+dilations: [1, 2, 4, 8]
+dropout: 0.1
+encoder_dropout: 0.25
+encoder_chunk_size: 24
+checkpoint_encoder: true
+branches: both  # both / morphology / power
+freeze_encoder: false
+encoder_checkpoint: null
+batch_size: 2
+epochs: 40
+patience: 6
+lr_encoder: 0.0001
+lr_head: 0.0003
+weight_decay: 0.0001
+gradient_clip: 1.0
+seed: 42
+num_workers: 0
+device: auto

@@ -23,6 +23,9 @@ import json
 import hashlib
 from pathlib import Path
 
+from eeg_pipeline.paths import project_root
+from .configuration import load_config
+
 import numpy as np
 import pandas as pd
 import yaml
@@ -50,8 +53,8 @@ def sha256_file(filepath):
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Validate Preprocessing Pipeline Output")
-    parser.add_argument("--data-dir", default="artifacts/sequence_build", help="Final data directory")
-    parser.add_argument("--baseline-dir", default="artifacts/label_refinement", help="Stage 2 baseline directory")
+    parser.add_argument("--data-dir", default=str(project_root() / "data" / "processed" / "legacy_v2_2"), help="Final data directory")
+    parser.add_argument("--baseline-dir", default=str(project_root() / "data" / "interim" / "stage2"), help="Stage 2 baseline directory")
     args = parser.parse_args()
 
     data_dir = Path(args.data_dir)

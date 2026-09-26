@@ -8,11 +8,11 @@ data_version: "CHBMIT_DataFreeze_V2.2"
 seed: 42
 
 # Configurable signal root (members can override via env or config edit)
-signal_root: "E:/epilepsy_v2_signals"
+signal_root: "../data/interim/signals"
 
 dataset:
   name: "CHB-MIT"
-  root: "E:/chbmit_dataset"
+  root: "../data/raw/chbmit"
   edf_pattern: "*.edf"
   summary_pattern: "*-summary.txt"
 
@@ -182,4 +182,4 @@ serialization:
   signal_dtype: "float32"
   lazy_loading: true
   mmap_mode: "r"
-  signal_output_dir: "E:/epilepsy_v2_signals"
+  signal_output_dir: "../data/interim/signals"

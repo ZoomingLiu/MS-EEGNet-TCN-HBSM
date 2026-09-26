@@ -1,78 +1,110 @@
+"""Causal explicit-duration state filter for LOSO warning evidence."""
+
 import numpy as np
-from scipy.special import logsumexp
+
+
+def _logsumexp(values, axis=None, keepdims=False):
+    values = np.asarray(values, dtype=float)
+    maximum = np.max(values, axis=axis, keepdims=True)
+    finite_maximum = np.where(np.isfinite(maximum), maximum, 0.0)
+    with np.errstate(divide="ignore"):
+        result = finite_maximum + np.log(
+            np.sum(np.exp(values - finite_maximum), axis=axis, keepdims=True)
+        )
+    result = np.where(np.isfinite(maximum), result, -np.inf)
+    if not keepdims and axis is not None:
+        result = np.squeeze(result, axis=axis)
+    return result
+
 
 class HSMM:
+    """Three-state filter with explicit attack and release durations.
+
+    ``transition_steps`` consecutive high-evidence observations are required
+    to enter preictal warning.  ``release_steps`` consecutive low-evidence
+    observations are required to leave it. Expanded microstates implement the
+    explicit durations while the public posterior remains three-dimensional.
     """
-    隐半马尔可夫模型 (极端临床惯性 Schmitt Trigger 迟滞版)
-    完全基于对数空间前向滤波解决时序约束问题。
-    使用 10 个隐状态实现：安全 -> 延时缓冲 -> 锁定预警 的不可逆病理演进。
-    """
-    def __init__(self, n_states=3, d_max=None):
+
+    def __init__(self, n_states=3, d_max=None, transition_steps=8,
+                 release_steps=6, branch_probability=0.5,
+                 emission_strength=15.0):
+        if n_states != 3:
+            raise ValueError("HSMM exposes exactly three states.")
+        if d_max is not None:
+            transition_steps = int(d_max)
+        if transition_steps < 1 or release_steps < 1:
+            raise ValueError("transition_steps and release_steps must be positive.")
+        if not 0.0 < branch_probability < 1.0:
+            raise ValueError("branch_probability must lie strictly between 0 and 1.")
+        if emission_strength <= 0:
+            raise ValueError("emission_strength must be positive.")
+
         self.n_states = n_states
-        # 10 个内部微观状态:
-        # 0: Interictal (安全期)
-        # 1~8: Transition (强制缓冲链，8 步约 20 秒)
-        # 9: Preictal (发作前期)
-        self.n_internal = 10  
-        self.A = np.zeros((self.n_internal, self.n_internal))
-        
-        # ----------------------------------------------------
-        # 极高惯性拓扑 (Extreme Inertia Topology)
-        # ----------------------------------------------------
-        # 1. 0态(安全期)：极其稳定。TCN 必须连续报高警 7秒以上 才能突破 1e-20 的惩罚。
-        self.A[0, 0] = 1.0 - 1e-20
-        self.A[0, 1] = 1e-20
-        
-        # 2. 1~8态(强制缓冲链)：进入后必须走完，耗时约 20秒 (取决于您的实际步长)
-        for i in range(1, 9):
-            self.A[i, i+1] = 1.0
-            
-        # 3. 9态(预警期)：极其黏滞。TCN 即使漏报掉回 0，HSMM 也会惯性维持警报 15秒以上！
-        self.A[9, 9] = 1.0 - 1e-50
-        self.A[9, 0] = 1e-50
+        self.transition_steps = int(transition_steps)
+        self.release_steps = int(release_steps)
+        self.emission_strength = float(emission_strength)
+        self.preictal_index = self.transition_steps + 1
+        self.release_count = self.release_steps - 1
+        self.n_internal = self.preictal_index + 1 + self.release_count
+        self.release_slice = slice(self.preictal_index + 1, self.n_internal)
 
-    def fit_emissions(self, X, y=None):
-        pass
+        self.A = np.zeros((self.n_internal, self.n_internal), dtype=float)
+        stay = 1.0 - branch_probability
+        advance = branch_probability
+        self.A[0, 0], self.A[0, 1] = stay, advance
+        for state in range(1, self.preictal_index):
+            self.A[state, 0], self.A[state, state + 1] = stay, advance
 
-    def _compute_emission_log_probs(self, risk_scores):
-        """尖锐高斯惩罚映射，配合拓扑实现迟滞效应"""
-        r = np.clip(risk_scores, 0.0, 1.0)
-        
-        # 状态0 期待 risk 为 0；激活态期待 risk 为 1
-        # 放大幅度（15.0）用来平衡转移矩阵的巨大惩罚项
-        LL_0 = -15.0 * (r - 0.0)**2
-        LL_active = -15.0 * (r - 1.0)**2
-        
-        T = len(risk_scores)
-        E_log = np.zeros((T, self.n_internal))
-        
-        E_log[:, 0] = LL_0
-        for i in range(1, 10):
-            E_log[:, i] = LL_active
-            
-        return E_log
+        if self.release_count == 0:
+            self.A[self.preictal_index, self.preictal_index] = stay
+            self.A[self.preictal_index, 0] = advance
+        else:
+            first_release = self.preictal_index + 1
+            self.A[self.preictal_index, self.preictal_index] = stay
+            self.A[self.preictal_index, first_release] = advance
+            for state in range(first_release, self.n_internal - 1):
+                self.A[state, self.preictal_index] = stay
+                self.A[state, state + 1] = advance
+            self.A[-1, self.preictal_index], self.A[-1, 0] = stay, advance
+
+        self._log_transition = np.full_like(self.A, -np.inf)
+        np.log(self.A, out=self._log_transition, where=self.A > 0)
+
+    def fit_emissions(self, X=None, y=None):
+        """Fixed evidence emissions require no held-out-label fitting."""
+        return self
+
+    def _compute_emission_log_probs(self, evidence_scores):
+        evidence = np.asarray(evidence_scores, dtype=float).reshape(-1)
+        if not np.all(np.isfinite(evidence)):
+            raise ValueError("evidence_scores must contain only finite values.")
+        evidence = np.clip(evidence, 0.0, 1.0)
+        safe = -self.emission_strength * evidence**2
+        active = -self.emission_strength * (evidence - 1.0) ** 2
+        emissions = np.empty((evidence.size, self.n_internal), dtype=float)
+        emissions[:, 0] = safe
+        emissions[:, 1:self.preictal_index + 1] = active[:, None]
+        if self.release_count:
+            emissions[:, self.release_slice] = safe[:, None]
+        return emissions
 
     def forward_inference(self, X=None, risk_scores=None):
-        """对数空间前向滤波 (严格时间序列推断)"""
-        T = len(risk_scores)
-        if T == 0: return np.zeros((0, self.n_states))
-            
-        E_log = self._compute_emission_log_probs(risk_scores)
-        A_log = np.log(np.maximum(self.A, 1e-300))
-        
-        alpha = np.full((T, self.n_internal), -np.inf)
-        alpha[0, 0] = E_log[0, 0] # 强制安全起手
-        
-        for t in range(1, T):
-            for j in range(self.n_internal):
-                alpha[t, j] = logsumexp(alpha[t-1, :] + A_log[:, j]) + E_log[t, j]
-                
-        alpha_norm = alpha - logsumexp(alpha, axis=1, keepdims=True)
-        probs_internal = np.exp(alpha_norm)
-        
-        state_probs = np.zeros((T, 3))
-        state_probs[:, 0] = probs_internal[:, 0]
-        state_probs[:, 1] = np.sum(probs_internal[:, 1:9], axis=1) 
-        state_probs[:, 2] = probs_internal[:, 9]
-        
-        return state_probs
+        """Return strictly causal probabilities for interictal/transition/preictal."""
+        if risk_scores is None:
+            raise ValueError("risk_scores is required.")
+        emissions = self._compute_emission_log_probs(risk_scores)
+        if emissions.shape[0] == 0:
+            return np.empty((0, self.n_states), dtype=float)
+        alpha = np.full_like(emissions, -np.inf)
+        alpha[0, 0] = emissions[0, 0]
+        for time_index in range(1, emissions.shape[0]):
+            alpha[time_index] = _logsumexp(
+                alpha[time_index - 1, :, None] + self._log_transition, axis=0
+            ) + emissions[time_index]
+        internal = np.exp(alpha - _logsumexp(alpha, axis=1, keepdims=True))
+        result = np.empty((emissions.shape[0], self.n_states), dtype=float)
+        result[:, 0] = internal[:, 0]
+        result[:, 1] = internal[:, 1:self.preictal_index].sum(axis=1)
+        result[:, 2] = internal[:, self.preictal_index:].sum(axis=1)
+        return result

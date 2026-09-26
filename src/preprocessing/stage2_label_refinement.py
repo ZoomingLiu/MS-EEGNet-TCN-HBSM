@@ -17,8 +17,8 @@ Features:
  10. Report seizure counts (scanned, retained, lost)
 
 Usage:
-  python Preprocessing/stage2_label_refinement.py \
-      --config Preprocessing/config.yaml \
+  python -m preprocessing.stage2_label_refinement \
+      --config configs/preprocessing_legacy.yaml \
       --existing-metadata artifacts/data_freeze_v2/metadata_all.parquet \
       --output artifacts/label_refinement/
 """
@@ -32,11 +32,14 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
+from eeg_pipeline.paths import project_root
+from .configuration import load_config
+
 import numpy as np
 import pandas as pd
 import yaml
 
-from Preprocessing._utils import (
+from ._utils import (
     QUALITY_FLAGS,
     LABEL_UNKNOWN, LABEL_INTERICTAL, LABEL_TRANSITION, LABEL_PREICTAL, LABEL_ICTAL,
     LABEL_NAMES,
@@ -83,7 +86,7 @@ def run_label_refinement(config: dict, output_dir: str,
     print("\n[Phase 1] Loading existing Stage 1 metadata...", flush=True)
 
     if existing_metadata_path is None:
-        existing_metadata_path = str(Path("artifacts/data_freeze_v2") / "metadata_all.parquet")
+        existing_metadata_path = str(project_root() / "data" / "interim" / "stage1" / "metadata_all.parquet")
 
     old_df = pd.read_parquet(existing_metadata_path)
     print(f"  Loaded {len(old_df)} windows from {existing_metadata_path}", flush=True)
@@ -639,15 +642,14 @@ def run_label_refinement(config: dict, output_dir: str,
 
 def main():
     parser = argparse.ArgumentParser(description="Stage 2: Label Refinement Pipeline")
-    parser.add_argument("--config", default="Preprocessing/config.yaml")
-    parser.add_argument("--output", default="artifacts/label_refinement")
+    parser.add_argument("--config", default=str(project_root() / "configs" / "preprocessing_legacy.yaml"))
+    parser.add_argument("--output", default=str(project_root() / "data" / "interim" / "stage2"))
     parser.add_argument("--existing-metadata", default=None,
                         help="Path to existing Stage 1 metadata_all.parquet")
     parser.add_argument("--max-cases", type=int, default=None)
     args = parser.parse_args()
 
-    with open(args.config, "r") as f:
-        config = yaml.safe_load(f)
+    config = load_config(args.config)
 
     run_label_refinement(config, args.output,
                          existing_metadata_path=args.existing_metadata,
