@@ -14,8 +14,8 @@ Key features:
   5. Configurable signal_root
 
 Usage:
-  python Preprocessing/stage3_sequence_build.py \
-      --config Preprocessing/config.yaml \
+  python -m preprocessing.stage3_sequence_build \
+      --config configs/preprocessing_legacy.yaml \
       --stage2-dir artifacts/label_refinement \
       --output artifacts/sequence_build/
 """
@@ -26,13 +26,16 @@ import json
 import shutil
 import time
 from pathlib import Path
+
+from eeg_pipeline.paths import project_root
+from .configuration import load_config
 from datetime import datetime
 
 import numpy as np
 import pandas as pd
 import yaml
 
-from Preprocessing._utils import (
+from ._utils import (
     LABEL_UNKNOWN, LABEL_INTERICTAL, LABEL_TRANSITION, LABEL_PREICTAL, LABEL_ICTAL,
     LABEL_NAMES,
     QUALITY_FLAGS,
@@ -649,15 +652,14 @@ def generate_sha256(output_path: Path):
 
 def main():
     parser = argparse.ArgumentParser(description="Stage 3: Sequence Build Pipeline")
-    parser.add_argument("--config", default="Preprocessing/config.yaml", help="Config YAML path")
-    parser.add_argument("--stage2-dir", default="artifacts/label_refinement", help="Stage 2 output directory")
-    parser.add_argument("--output", default="artifacts/sequence_build", help="Stage 3 output directory")
+    parser.add_argument("--config", default=str(project_root() / "configs" / "preprocessing_legacy.yaml"), help="Config YAML path")
+    parser.add_argument("--stage2-dir", default=str(project_root() / "data" / "interim" / "stage2"), help="Stage 2 output directory")
+    parser.add_argument("--output", default=str(project_root() / "data" / "processed" / "legacy_v2_2"), help="Stage 3 output directory")
     args = parser.parse_args()
 
     t0 = time.time()
 
-    with open(args.config) as f:
-        config = yaml.safe_load(f)
+    config = load_config(args.config)
 
     stage2_dir = Path(args.stage2_dir)
     output_path = Path(args.output)
@@ -665,7 +667,7 @@ def main():
 
     signal_root = config.get("serialization", {}).get(
         "signal_output_dir",
-        config.get("signal_root", "E:/epilepsy_v2_signals")
+        config.get("signal_root", str(project_root() / "data" / "interim" / "signals"))
     )
 
     print(f"=== Stage 3: Sequence Build ===", flush=True)

@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ms-eegnet-tcn-hbsm"
+version = "0.1.0"
+description = "Research pipelines for EEG preprocessing and causal risk post-processing"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24"]
+
+[project.optional-dependencies]
+preprocessing = ["scipy>=1.10", "pandas>=2", "PyYAML>=6", "pyarrow>=12", "mne>=1.5"]
+training = ["torch>=2", "pandas>=2", "PyYAML>=6", "pyarrow>=12"]
+forecast = ["torch>=2", "pandas>=2", "PyYAML>=6"]
+dev = ["pytest>=7", "scipy>=1.10", "pandas>=2", "PyYAML>=6", "pyarrow>=12"]
+documents = ["python-docx>=1"]
+
+[project.scripts]
+hbsi-run = "hbsm_loso.hbsi_main_loso:main"
+hbsi-plot = "hbsm_loso.hbsi_visualization:main"
+eeg-stage1 = "preprocessing.stage1_edf_to_signals:main"
+eeg-stage2 = "preprocessing.stage2_label_refinement:main"
+eeg-stage3 = "preprocessing.stage3_sequence_build:main"
+eeg-validate = "preprocessing.validate:main"
+eeg-export-member4 = "preprocessing.export_member4:main"
+forecast-prepare = "forecasting.prepare:main"
+forecast-train = "forecasting.train:main"
+forecast-predict = "forecasting.predict:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+py-modules = ["Preprocessing"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["hbsm_loso*", "preprocessing*", "eeg_pipeline*", "forecasting*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra"

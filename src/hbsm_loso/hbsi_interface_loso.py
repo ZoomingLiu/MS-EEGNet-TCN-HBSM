@@ -1,73 +1,90 @@
-import pickle
-import numpy as np
+"""Validated, serializable output contract for LOSO HBSI inference."""
+
 import logging
+import pickle
 from dataclasses import dataclass
-from typing import List
+from pathlib import Path
+from typing import Mapping, Sequence
+
+import numpy as np
+
+LOGGER = logging.getLogger(__name__)
+
 
 @dataclass
 class HBSIOutput:
     sequence_id: str
     patient_id: str
     record_id: str
-    split: str  
+    split: str
     timestamps_sec: np.ndarray
     hsmm_state_probabilities: np.ndarray
     hsmm_state_path: np.ndarray
     bocpd_change_probability: np.ndarray
     valid_mask: np.ndarray
 
-def package_hbsi_results(metadata_list: list, all_hsmm_probs: list, all_bocpd_probs: list, original_L_list: list) -> List[HBSIOutput]:
-    """
-    将结果打包为组员4要求的结构。针对遇到 Ictal 截断的序列，使用零值或保持状态进行长度补齐，
-    以确保最终输出的维度 (L,) 严格对应 TCN 的原始时间戳长度。
-    """
-    hbsi_outputs = []
-    
-    for i, meta in enumerate(metadata_list):
-        orig_L = original_L_list[i]
-        hsmm_probs = all_hsmm_probs[i] 
-        bocpd_probs = all_bocpd_probs[i] 
-        
-        cut_L = len(hsmm_probs)
-        
-        # 1. 补全因 Ictal 被截断的序列尾部
-        final_hsmm = np.zeros((orig_L, 3), dtype=np.float32)
-        final_bocpd = np.zeros(orig_L, dtype=np.float32)
-        
-        if cut_L > 0:
-            final_hsmm[:cut_L, :] = hsmm_probs
-            final_bocpd[:cut_L] = bocpd_probs
-            # Ictal 部分不输出发作前状态概率，可设为安全基线或 0
-            if cut_L < orig_L:
-                final_hsmm[cut_L:, 0] = 1.0 
-        else:
-            final_hsmm[:, 0] = 1.0 # 极端情况防崩溃
-            
-        # 2. 强校验：归一化与裁剪
-        final_hsmm = np.clip(final_hsmm, 1e-10, 1.0)
-        final_hsmm = final_hsmm / final_hsmm.sum(axis=1, keepdims=True)
-        final_bocpd = np.clip(final_bocpd, 0.0, 1.0)
-        
-        # 3. 提取最可能状态路径
-        hsmm_path = np.argmax(final_hsmm, axis=1)
-        
-        # 4. 创建 Dataclass
-        output_obj = HBSIOutput(
-            sequence_id=meta.get('sequence_id', f"seq_{i}"),
-            patient_id=meta.get('patient_id', 'unknown'),
-            record_id=meta.get('record_id', 'unknown'),
-            split=meta.get('split', 'UNKNOWN'),
-            timestamps_sec=meta['timestamps_sec'],
-            hsmm_state_probabilities=final_hsmm.astype(np.float32),
-            hsmm_state_path=hsmm_path.astype(np.int64),
-            bocpd_change_probability=final_bocpd.astype(np.float32),
-            valid_mask=np.ones(orig_L, dtype=bool)
-        )
-        hbsi_outputs.append(output_obj)
-        
-    return hbsi_outputs
 
-def save_to_pickle(hbsi_outputs: List[HBSIOutput], filepath: str):
-    with open(filepath, 'wb') as f:
-        pickle.dump(hbsi_outputs, f)
-    logging.info(f"成功导出 {len(hbsi_outputs)} 条序列的 HBSIOutput 列表至: {filepath}")
+def _validated_output(metadata: Mapping, hsmm_probabilities, bocpd_probabilities, length: int, index: int) -> HBSIOutput:
+    timestamps = np.asarray(metadata["timestamps_sec"], dtype=np.float64).reshape(-1)
+    if timestamps.size != length:
+        raise ValueError(f"sequence {index}: timestamps length {timestamps.size} does not match {length}.")
+    hsmm = np.asarray(hsmm_probabilities, dtype=np.float64)
+    bocpd = np.asarray(bocpd_probabilities, dtype=np.float64).reshape(-1)
+    if hsmm.shape != (length, 3):
+        raise ValueError(f"sequence {index}: HSMM probabilities must have shape ({length}, 3), got {hsmm.shape}.")
+    if bocpd.size != length:
+        raise ValueError(f"sequence {index}: BOCPD probabilities length {bocpd.size} does not match {length}.")
+    if not np.all(np.isfinite(hsmm)) or not np.all(np.isfinite(bocpd)):
+        raise ValueError(f"sequence {index}: probabilities must be finite.")
+    hsmm = np.clip(hsmm, 0.0, None)
+    row_sums = hsmm.sum(axis=1, keepdims=True)
+    if np.any(row_sums == 0):
+        raise ValueError(f"sequence {index}: every HSMM row must have positive mass.")
+    hsmm /= row_sums
+    valid_mask = np.asarray(metadata.get("valid_mask", np.ones(length, dtype=bool)), dtype=bool).reshape(-1)
+    if valid_mask.size != length:
+        raise ValueError(f"sequence {index}: valid_mask length does not match {length}.")
+    return HBSIOutput(
+        sequence_id=str(metadata.get("sequence_id", f"seq_{index}")),
+        patient_id=str(metadata.get("patient_id", "unknown")),
+        record_id=str(metadata.get("record_id", "unknown")),
+        split=str(metadata.get("split", "UNKNOWN")),
+        timestamps_sec=timestamps,
+        hsmm_state_probabilities=hsmm.astype(np.float32),
+        hsmm_state_path=np.argmax(hsmm, axis=1).astype(np.int64),
+        bocpd_change_probability=np.clip(bocpd, 0.0, 1.0).astype(np.float32),
+        valid_mask=valid_mask,
+    )
+
+
+def package_hbsi_results(metadata_list: Sequence[Mapping], all_hsmm_probs: Sequence, all_bocpd_probs: Sequence,
+                         original_L_list: Sequence[int] | None = None) -> list[HBSIOutput]:
+    """Validate and package sequence results; optionally pad truncated inputs."""
+    if not (len(metadata_list) == len(all_hsmm_probs) == len(all_bocpd_probs)):
+        raise ValueError("metadata, HSMM, and BOCPD collections must have equal lengths.")
+    if original_L_list is not None and len(original_L_list) != len(metadata_list):
+        raise ValueError("original_L_list must have the same length as metadata_list.")
+    outputs = []
+    for index, (metadata, hsmm, bocpd) in enumerate(zip(metadata_list, all_hsmm_probs, all_bocpd_probs)):
+        target_length = len(metadata["timestamps_sec"]) if original_L_list is None else int(original_L_list[index])
+        hsmm, bocpd = np.asarray(hsmm), np.asarray(bocpd).reshape(-1)
+        if hsmm.shape[0] > target_length or bocpd.size > target_length:
+            raise ValueError(f"sequence {index}: result is longer than its original sequence.")
+        if hsmm.shape[0] != bocpd.size:
+            raise ValueError(f"sequence {index}: HSMM and BOCPD result lengths differ.")
+        if hsmm.shape[0] < target_length:
+            padded_hsmm = np.zeros((target_length, 3), dtype=float)
+            padded_hsmm[:, 0] = 1.0
+            padded_hsmm[:hsmm.shape[0]] = hsmm
+            padded_bocpd = np.zeros(target_length, dtype=float)
+            padded_bocpd[:bocpd.size] = bocpd
+            hsmm, bocpd = padded_hsmm, padded_bocpd
+        outputs.append(_validated_output(metadata, hsmm, bocpd, target_length, index))
+    return outputs
+
+
+def save_to_pickle(hbsi_outputs: Sequence[HBSIOutput], filepath: str | Path) -> None:
+    path = Path(filepath)
+    with path.open("wb") as file_handle:
+        pickle.dump(list(hbsi_outputs), file_handle, protocol=pickle.HIGHEST_PROTOCOL)
+    LOGGER.info("Exported %d HBSI outputs to %s", len(hbsi_outputs), path)

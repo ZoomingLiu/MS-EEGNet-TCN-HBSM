@@ -17,8 +17,8 @@ Produces the signal files (reused by Stages 2 & 3) plus window metadata
 and initial label assignments.
 
 Usage:
-  python Preprocessing/stage1_edf_to_signals.py --config Preprocessing/config.yaml
-  python Preprocessing/stage1_edf_to_signals.py --config Preprocessing/config.yaml --max-cases 3
+  python -m preprocessing.stage1_edf_to_signals --config configs/preprocessing_legacy.yaml
+  python -m preprocessing.stage1_edf_to_signals --config configs/preprocessing_legacy.yaml --max-cases 3
 """
 
 import argparse
@@ -31,11 +31,14 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
+from eeg_pipeline.paths import project_root
+from .configuration import load_config
+
 import numpy as np
 import pandas as pd
 import yaml
 
-from _utils import (
+from ._utils import (
     QUALITY_FLAGS,
     LABEL_UNKNOWN, LABEL_INTERICTAL, LABEL_TRANSITION,
     LABEL_PREICTAL, LABEL_ICTAL, LABEL_NAMES,
@@ -648,16 +651,15 @@ def run_pipeline(config: dict, output_dir: str, max_cases: int = None) -> dict:
 def main():
     parser = argparse.ArgumentParser(
         description="Stage 1: EDF Reading, Filtering, and Windowing")
-    parser.add_argument("--config", default="Preprocessing/config.yaml",
+    parser.add_argument("--config", default=str(project_root() / "configs" / "preprocessing_legacy.yaml"),
                         help="Path to config YAML")
-    parser.add_argument("--output", default="artifacts/data_freeze_v2",
+    parser.add_argument("--output", default=str(project_root() / "data" / "interim" / "stage1"),
                         help="Output directory")
     parser.add_argument("--max-cases", type=int, default=None,
                         help="Limit number of cases (for testing)")
     args = parser.parse_args()
 
-    with open(args.config, "r") as f:
-        config = yaml.safe_load(f)
+    config = load_config(args.config)
 
     run_pipeline(config, args.output, max_cases=args.max_cases)
 

@@ -1,8 +1,48 @@
-# Ignore ML data and weights
+# Python / environments / editor-local settings
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+build/
+dist/
+.vscode/
+.ipynb_checkpoints/
+.env
+.env.*
+!.env.example
+
+# Large datasets, trained models and executable pickles
 *.npy
 *.npz
 *.h5
+*.hdf5
+*.edf
 *.pth
 *.pt
+*.pkl
+*.parquet
+*.feather
+*.ckpt
 final_hbsi_results/
-data/
+
+# Only directory documentation is tracked under data and generated-artifact roots.
+/data/**
+!/data/**/
+!/data/**/README.md
+/outputs/**
+!/outputs/**/
+!/outputs/**/README.md
+/reports/**
+!/reports/**/
+!/reports/**/README.md
+/member3_output128_causal_full_timeline/
+/src/.repo_layout/
+/src/.long_context_stage/
+/configs/*.local.yaml
+Thumbs.db
+.DS_Store

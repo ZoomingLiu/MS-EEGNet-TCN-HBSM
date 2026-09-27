@@ -10,11 +10,7 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-# Add project root to path
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
-
-from Preprocessing._utils import (
+from preprocessing._utils import (
     parse_time_string,
     parse_summary_enhanced,
     build_patient_timeline,
@@ -155,7 +151,18 @@ class TestWindowLabeling:
         ]
         result = assign_window_label_via_zones(5, 15, zones)
         assert result["state_label"] == LABEL_PREICTAL
-        assert result["boundary_flag"] == False
+        # V2.1 uses 80% purity. A 50/50 tie is a boundary, even when label priority chooses PREICTAL.
+        assert result["maximum_overlap_fraction"] == 0.5
+        assert result["boundary_flag"] is True
+
+    @pytest.mark.parametrize("fraction,is_boundary", [(0.79, True), (0.8, False), (0.81, False)])
+    def test_eighty_percent_boundary_threshold(self, fraction, is_boundary):
+        zones = [
+            {"start_sec": 0, "end_sec": fraction * 100, "label": LABEL_PREICTAL},
+            {"start_sec": fraction * 100, "end_sec": 100, "label": LABEL_INTERICTAL},
+        ]
+        result = assign_window_label_via_zones(0, 100, zones)
+        assert result["boundary_flag"] is is_boundary
 
     def test_overlap_sum(self):
         zones = [
@@ -286,6 +293,15 @@ class TestSeizureClustering:
 
 
 class TestCausalFilter:
+    def test_future_samples_do_not_change_filtered_prefix(self):
+        rng = np.random.default_rng(20260926)
+        signal = rng.standard_normal((22, 2560)).astype(np.float32)
+        changed = signal.copy()
+        changed[:, 1280:] += 100
+        original, _ = apply_causal_bandpass(signal, 256)
+        perturbed, _ = apply_causal_bandpass(changed, 256)
+        np.testing.assert_array_equal(original[:, :1280], perturbed[:, :1280])
+
     def test_filter_preserves_shape(self):
         sig = np.random.randn(22, 1280).astype(np.float32)
         filtered, warmup = apply_causal_bandpass(sig, 256.0)
